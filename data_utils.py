@@ -385,15 +385,16 @@ def get_dataset_from_tfrecords(tfrecords_dir='tfrecords', split='train',
     pattern = os.path.join(tfrecords_dir, '{}*.tfrecord'.format(split))
     files_ds = tf.data.Dataset.list_files(pattern)
 
-    # Disregard data order in favor of reading speed
-    ignore_order = tf.data.Options()
-    ignore_order.experimental_deterministic = False
-    files_ds = files_ds.with_options(ignore_order)
 
     # Read TFRecord files in an interleaved order
     ds = tf.data.TFRecordDataset(files_ds,
                                  compression_type='ZLIB',
                                  num_parallel_reads=AUTOTUNE)
+
+    # Shuffle during training
+    if split == 'train':
+        ds = ds.shuffle(batch_size*2)
+        
     # Prepare batches
     ds = ds.batch(batch_size)
 

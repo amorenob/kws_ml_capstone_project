@@ -43,7 +43,7 @@ def simple_stacked_fc_nn(width, heigth, depth, units_x_layer, classes, dropout_r
     the builded model.
     """
     model = Sequential()
-    input_shape = (width, heigth)
+    input_shape = (width, heigth, 1)
 
     #flat input 
     model.add(Flatten(input_shape=input_shape))
@@ -62,13 +62,16 @@ def simple_stacked_fc_nn(width, heigth, depth, units_x_layer, classes, dropout_r
 if __name__ == '__main__':
     model = simple_stacked_fc_nn(224,
                                  224,
-                                 1,
+                                 2,
                                  512,
                                  12)
     print(model.summary())
-    train_ds = get_dataset_from_tfrecords()
-    
+    train_ds = get_dataset_from_tfrecords(batch_size=128)
+    train_ds = train_ds.map(audio_to_spectogram)
+
+    validation_ds = get_dataset_from_tfrecords(batch_size=128,split='validate')
+    validation_ds = validation_ds.map(audio_to_spectogram)
     model.compile(optimizer='adam',
                   loss='sparse_categorical_crossentropy',
                   metrics=['accuracy'])
-    model.fit(train_ds, epochs=2)
+    model.fit(train_ds, epochs=10, validation_data=validation_ds)
