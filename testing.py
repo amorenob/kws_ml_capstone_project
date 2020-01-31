@@ -22,8 +22,8 @@ def audio_to_spectogram(audio, label):
 
     spectrograms = tf.expand_dims(spectrograms, -1)
     #audio = audio * 0
-    spectrograms = tf.image.resize(spectrograms, [224, 224])
-    #concate=tf.image.grayscale_to_rgb(out)
+    spectrograms = tf.image.resize(spectrograms, [124, 124])
+    spectrograms = tf.image.grayscale_to_rgb(spectrograms)
     #out =  tf.squeeze(expand_dims, 0)
     return spectrograms, label
 
@@ -43,7 +43,7 @@ def _parse_batch(record_batch, sample_rate, duration):
     return example['audio'], example['label']
 
 
-def get_dataset_from_tfrecords(tfrecords_dir='data/tfrecords', split='train',
+def get_raw_dataset_from_tfrecords(tfrecords_dir='data/tfrecords', split='train',
                                batch_size=64, sample_rate=16000, duration=1,
                                n_epochs=2):
     if split not in ('train', 'test', 'validate'):
@@ -66,9 +66,11 @@ def get_dataset_from_tfrecords(tfrecords_dir='data/tfrecords', split='train',
     # Read TFRecord files in an interleaved order
     ds = tf.data.TFRecordDataset(files_ds,
                                  compression_type='ZLIB',
-                                 num_parallel_reads=4)
+                                 num_parallel_reads=AUTOTUNE)
     
-
+        # Shuffle during training
+    if split == 'train':
+        ds = ds.shuffle(2000)
     # Prepare batches
     ds = ds.batch(batch_size, drop_remainder=True)
     #print(ds)
@@ -85,8 +87,17 @@ def get_dataset_from_tfrecords(tfrecords_dir='data/tfrecords', split='train',
     return ds.prefetch(buffer_size=AUTOTUNE)
 
 
+def preprocess_dataset(ds, preprocess_fc):
+
+
+
+
+    ds = ds.map(ds, preprocess_fc)
+        
+
+
 def main():
-    train_ds = get_dataset_from_tfrecords()
+    train_ds = get_raw_dataset_from_tfrecords()
     train_ds = train_ds.map(audio_to_spectogram)
     sample = train_ds.take(1)
     print(sample)

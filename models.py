@@ -3,8 +3,9 @@ from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Flatten
 from tensorflow.keras.layers import Dense
 from tensorflow.keras.layers import Dropout
+from tensorflow.keras.layers import Conv2D
+from tensorflow.keras.layers import MaxPooling2D
 
-from testing import *
 
 
 # infor ref de como construir modeles en tensorflow
@@ -57,21 +58,26 @@ def simple_stacked_fc_nn(width, heigth, depth, units_x_layer, classes, dropout_r
     model.add(Dense(classes, 'softmax')) # the shape of the output is the desired # of classes
     return model
 
+def simple_cnn(width, heigth, classe):
+    model = Sequential()
+
+    model.add(Conv2D(width, (3, 3), activation='relu', input_shape=(width, heigth, 3)))
+    model.add(MaxPooling2D((2, 2)))
+    model.add(Conv2D(width*2, (3, 3), activation='relu'))
+    model.add(MaxPooling2D((2, 2)))
+    model.add(Conv2D(width*2, (3, 3), activation='relu'))
+
+    model.add(Flatten())
+    model.add(Dense(width*2, activation='relu'))
+    model.add(Dense(12, activation='softmax'))
+    return model
 
 
 if __name__ == '__main__':
-    model = simple_stacked_fc_nn(224,
-                                 224,
-                                 2,
-                                 512,
-                                 12)
-    print(model.summary())
-    train_ds = get_dataset_from_tfrecords(batch_size=128)
-    train_ds = train_ds.map(audio_to_spectogram)
+    # model = simple_stacked_fc_nn(64,
+    #                              64,
+    #                              2,
+    #                              512,
+    #                              12)
+    pass
 
-    validation_ds = get_dataset_from_tfrecords(batch_size=128,split='validate')
-    validation_ds = validation_ds.map(audio_to_spectogram)
-    model.compile(optimizer='adam',
-                  loss='sparse_categorical_crossentropy',
-                  metrics=['accuracy'])
-    model.fit(train_ds, epochs=10, validation_data=validation_ds)

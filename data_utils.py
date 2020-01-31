@@ -177,12 +177,90 @@ def download_data(source_url, dest_dir, extract=True):
             tarfile.open(file_path).extractall(dest_dir)
 
 
-def _float_feature(list_of_floats):  # float32
-    return tf.train.Feature(float_list=tf.train.FloatList(value=list_of_floats))
+
+def audio_to_spectogram(audio, label):
+    stfts = tf.signal.stft(
+        audio,
+        frame_length=480,
+        frame_step=160,
+        fft_length=None,
+        window_fn=tf.signal.hann_window,
+        pad_end=False,
+        name=None
+    )
+    spectrograms = tf.abs(stfts)
+
+    spectrograms = tf.expand_dims(spectrograms, -1)
+    #audio = audio * 0
+    spectrograms = tf.image.resize(spectrograms, [124, 124])
+    spectrograms = tf.image.grayscale_to_rgb(spectrograms)
+    #out =  tf.squeeze(expand_dims, 0)
+    return spectrograms, label
 
 
-def _int64_feature(value):
-    return tf.train.Feature(int64_list=tf.train.Int64List(value=[value]))
+def _parse_batch(record_batch, sample_rate, duration):
+    n_samples = sample_rate * duration
+
+    # Create a description of the features
+    feature_description = {
+        'audio': tf.io.FixedLenFeature([n_samples], tf.float32),
+        'label': tf.io.FixedLenFeature([1], tf.int64),
+    }
+
+    # Parse the input `tf.Example` proto using the dictionary above
+    example = tf.io.parse_example(record_batch, feature_description)
+
+    return example['audio'], example['label']
+
+
+def get_raw_dataset_from_tfrecords(tfrecords_dir='data/tfrecords', split='train',
+                               batch_size=64, sample_rate=16000, duration=1,
+                               n_epochs=2):
+    if split not in ('train', 'test', 'validate'):
+        raise ValueError("split must be either 'train', 'test' or 'validate'")
+
+    # List all *.tfrecord files for the selected split
+    split_match = {
+        'train':'training', 
+        'test':'testing', 
+        'validate':'validation'
+    }
+    pattern = os.path.join(tfrecords_dir, '{}*.tfrecord'.format(split_match[split]))
+    files_ds = tf.data.Dataset.list_files(pattern)
+
+    # Disregard data order in favor of reading speed
+    ignore_order = tf.data.Options()
+    ignore_order.experimental_deterministic = False
+    files_ds = files_ds.with_options(ignore_order)
+
+    # Read TFRecord files in an interleaved order
+    ds = tf.data.TFRecordDataset(files_ds,
+                                 compression_type='ZLIB',
+                                 num_parallel_reads=AUTOTUNE)
+    
+        # Shuffle during training
+    if split == 'train':
+        ds = ds.shuffle(2000)
+    # Prepare batches
+    ds = ds.batch(batch_size, drop_remainder=True)
+    #print(ds)
+    # Parse a batch into a dataset of [audio, label] pairs
+    ds = ds.map(lambda x: _parse_batch(x, sample_rate, duration))
+    #ds = ds.map(audio_to_spectogram)
+    #print(ds)
+    
+    
+    # Repeat the training data for n_epochs. Don't repeat test/validate splits.
+    if split == 'train':
+        ds = ds.repeat(n_epochs)
+
+    return ds.prefetch(buffer_size=AUTOTUNE)
+
+
+def preprocess_dataset(ds, preprocess_fc):
+
+    ds = ds.map(ds, preprocess_fc)
+        
 
 
 class TFRecordsConverter:
@@ -205,6 +283,7 @@ class TFRecordsConverter:
             self.prepare_data_index(silence_percentage, unknown_percentage,
                                     wanted_words, validation_percentage,
                                     testing_percentage)
+            self.prepare_background_data()
 
     
     def prepare_data_index(self, silence_percentage, unknown_percentage,
@@ -315,6 +394,28 @@ class TFRecordsConverter:
                     desired_samples=self.sample_rate )
                     #desired_samples=self.sample_rate * self.duration)
 
+                # Mute audio signal if label is silence
+                if label ==  self.word_to_index[SILENCE_LABEL]:
+                    audio = audio * 0
+
+                background_audio = random.choice(self.background_data)
+                background_offset = np.random.randint(
+                            0, len(background_audio) - 16000)
+                background_clipped = background_audio[background_offset:(
+                    background_offset + 16000)]
+                background_reshaped = tf.reshape(background_clipped, [16000, 1])
+                background_frequency = 0.5
+                background_volume_range = 0.2
+                if np.random.uniform(0, 1) < background_frequency:
+                    background_volume = np.random.uniform(0, background_volume_range)
+                else:
+                    background_volume = 0
+
+                background_audio = background_volume * background_reshaped
+                
+                audio = audio + background_audio
+
+                audio = audio_to_spectogram(audio)
                 # Example is a flexible message type that contains key-value
                 # pairs, where each key maps to a Feature message. Here, each
                 # Example contains two features: A FloatList for the decoded
@@ -357,6 +458,47 @@ class TFRecordsConverter:
             print('Number of testing examples: {}'.format(self.n_test))
             print('Number of validation examples: {}'.format(self.n_val))
             print('TFRecord files saved to {}'.format(self.output_dir))
+
+    def prepare_background_data(self):
+        """Searches a folder for background noise audio, and loads it into memory.
+
+        It's expected that the background audio samples will be in a subdirectory
+        named '_background_noise_' inside the 'data_dir' folder, as .wavs that match
+        the sample rate of the training data, but can be much longer in duration.
+
+        If the '_background_noise_' folder doesn't exist at all, this isn't an
+        error, it's just taken to mean that no background noise augmentation should
+        be used. If the folder does exist, but it's empty, that's treated as an
+        error.
+
+        Returns:
+        List of raw PCM-encoded audio samples of background noise.
+
+        Raises:
+        Exception: If files aren't found in the folder.
+        """
+        self.background_data = []
+        background_dir = os.path.join(self.data_dir, BACKGROUND_NOISE_DIR_NAME)
+        if not os.path.exists(background_dir):
+            return self.background_data
+        
+        search_path = os.path.join(self.data_dir, BACKGROUND_NOISE_DIR_NAME,
+                            '*.wav')
+
+        for wav_path in gfile.Glob(search_path):
+            raw_audio = tf.io.read_file(wav_path)
+            audio, sample_rate = tf.audio.decode_wav(
+                raw_audio,
+                desired_channels=1  # mono
+                )
+
+            self.background_data.append(audio)
+
+        if not self.background_data:
+            raise Exception('No background wav files were found in ' + search_path)
+
+
+
 
 
 
@@ -406,6 +548,9 @@ def get_dataset_from_tfrecords(tfrecords_dir='tfrecords', split='train',
         ds = ds.repeat(n_epochs)
 
     return ds.prefetch(buffer_size=AUTOTUNE)
+
+
+
 
 
 if __name__ == '__main__':
