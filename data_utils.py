@@ -164,8 +164,6 @@ def audio_to_spectogram_1D(audio, label):
     spectrograms = tf.image.resize(spectrograms, [124, 124])    # Resize the spectogram to match model input
     return spectrograms, label
 
-
-
 def _parse_batch(record_batch, sample_rate, duration):
     n_samples = sample_rate * duration
 
@@ -365,6 +363,12 @@ class TFRecordsConverter:
                 # Mute audio signal if label is silence
                 if label ==  self.word_to_index[SILENCE_LABEL]:
                     audio = audio * 0
+                    
+                time_shift_ms = 100
+                time_shift = int((time_shift_ms * self.sample_rate) / 1000)
+                time_shift_amount = np.random.randint(-time_shift, time_shift)
+
+                audio = tf.roll(audio, time_shift_amount, axis=0)
 
                 background_audio = random.choice(self.background_data)
                 background_offset = np.random.randint(
@@ -372,6 +376,7 @@ class TFRecordsConverter:
                 background_clipped = background_audio[background_offset:(
                     background_offset + 16000)]
                 background_reshaped = tf.reshape(background_clipped, [16000, 1])
+
                 background_frequency = 0.5
                 background_volume_range = 0.2
                 if np.random.uniform(0, 1) < background_frequency:
@@ -382,6 +387,7 @@ class TFRecordsConverter:
                 background_audio = background_volume * background_reshaped
                 
                 audio = audio + background_audio
+
 
                 # Example is a flexible message type that contains key-value
                 # pairs, where each key maps to a Feature message. Here, each
@@ -466,19 +472,19 @@ class TFRecordsConverter:
 
 
 if __name__ == '__main__':
-    # converter = TFRecordsConverter(RAW_DATA_DIR,
-    #                    OUTPUT_DIR,
-    #                    5,
-    #                    11,
-    #                    TRAIN_WORDS,
-    #                    VAL_SIZE,
-    #                    TEST_SIZE,
-    #                    NUM_SHARDS_VAL,
-    #                    NUM_SHARDS_TEST,
-    #                    NUM_SHARDS_TRAIN
-    # )
+    converter = TFRecordsConverter(RAW_DATA_DIR,
+                       OUTPUT_DIR,
+                       5,
+                       11,
+                       TRAIN_WORDS,
+                       VAL_SIZE,
+                       TEST_SIZE,
+                       NUM_SHARDS_VAL,
+                       NUM_SHARDS_TEST,
+                       NUM_SHARDS_TRAIN
+    )
 
-    # converter.convert()
+    converter.convert()
 
-    # print('Convertion finished suceesfully')
+    print('Convertion finished suceesfully')
     pass

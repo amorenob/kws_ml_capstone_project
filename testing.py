@@ -1,11 +1,13 @@
 #from data_utils import *
 import os
+import numpy as np
 import tensorflow as tf
 from tensorflow.python.ops import gen_audio_ops as audio_ops
-
+from models import *
 AUTOTUNE = tf.data.experimental.AUTOTUNE
 
-def audio_to_spectogram(audio, label):
+def audio_to_melspectogram_3D(audio, label):
+    sample_rate = 16000
     stfts = tf.signal.stft(
         audio,
         frame_length=480,
@@ -16,13 +18,25 @@ def audio_to_spectogram(audio, label):
         name=None
     )
     spectrograms = tf.abs(stfts)
+    # Warp the linear scale spectrograms into the mel-scale.
+    num_spectrogram_bins = stfts.shape[-1]
+    print(num_spectrogram_bins)
+    lower_edge_hertz, upper_edge_hertz, num_mel_bins = 80.0, 7600.0, 80
+    linear_to_mel_weight_matrix = tf.signal.linear_to_mel_weight_matrix(
+    num_mel_bins, num_spectrogram_bins, sample_rate, lower_edge_hertz,
+    upper_edge_hertz)
+    mel_spectrograms = tf.tensordot(
+    spectrograms, linear_to_mel_weight_matrix, 1)
+    mel_spectrograms.set_shape(spectrograms.shape[:-1].concatenate(
+    linear_to_mel_weight_matrix.shape[-1:]))
+    # Compute a stabilized log to get log-magnitude mel-scale spectrograms.
 
-    spectrograms = tf.expand_dims(spectrograms, -1)
-    #audio = audio * 0
-    spectrograms = tf.image.resize(spectrograms, [124, 124])
-    spectrograms = tf.image.grayscale_to_rgb(spectrograms)
-    #out =  tf.squeeze(expand_dims, 0)
-    return spectrograms, label
+    log_mel_spectrograms = tf.math.log(mel_spectrograms + 1e-6)
+
+    log_mel_spectrograms = tf.expand_dims(log_mel_spectrograms, -1)
+    log_mel_spectrograms = tf.image.resize(log_mel_spectrograms, [98, 98])    # Resize the spectogram to match model input
+    log_mel_spectrograms = tf.image.grayscale_to_rgb(log_mel_spectrograms)      # Transform image to 3 cahnels
+    return log_mel_spectrograms, label
 
 
 def _parse_batch(record_batch, sample_rate, duration):
@@ -38,7 +52,7 @@ def _parse_batch(record_batch, sample_rate, duration):
     example = tf.io.parse_example(record_batch, feature_description)
 
     return example['audio'], example['label']
-
+  
 
 def get_dataset_from_tfrecords(tfrecords_dir='data/tfrecords', split='train',
                                batch_size=64, sample_rate=16000, duration=1,
@@ -87,19 +101,54 @@ def get_dataset_from_tfrecords(tfrecords_dir='data/tfrecords', split='train',
 def preprocess_dataset(ds, preprocess_fc):
 
     ds = ds.map(ds, preprocess_fc)
-        
+
+def audio_to_2D(audio, label):
+    audio_2d = tf.slice(audio,[0,0], [64, 15376])
+    audio_2d = tf.reshape(audio_2d, [64, 124,124])
+    audio_2d = tf.expand_dims(audio_2d, -1)
+    audio_2d = tf.image.grayscale_to_rgb(audio_2d)
+    return audio_2d, label        
 
 
 def main():
-    train_ds = get_raw_dataset_from_tfrecords()
-    train_ds = train_ds.map(audio_to_spectogram)
-    sample = train_ds.take(1)
-    print(sample)
-    model = tf.keras.applications.VGG16()
+    def get_datasets(batch_size, transformation_fc):
+        """get train, validate and test datasets and perform the parsed transformation function"""
+        datasets = {}
+        splits = ('train', 'validate', 'test')
+        for split in splits:
+            ds = get_dataset_from_tfrecords(batch_size=batch_size, split=split)
+            ds = ds.map(transformation_fc)    #Transform audio to spectogram
+            datasets[split] = ds
+        return datasets['train'], datasets['validate'], datasets['test']
+    
+    train_ds, validation_ds, test_ds = get_datasets(batch_size=64, 
+                                                transformation_fc=audio_to_melspectogram_3D)
+    print(train_ds,validation_ds, test_ds, sep='\n')
+
+    model = simple_cnn(98, 98, 12)    
     model.compile(optimizer='adam',
-                 loss='sparse_categorical_crossentropy',
-                 metrics=['accuracy'])
-    model.fit(train_ds, epochs=5)
+                loss='sparse_categorical_crossentropy',
+                metrics=['accuracy'])
+    #history = model.fit(train_ds, epochs=3, validation_data=validation_ds)
+    #model.save_weights('data/checkpoints/my_checkpoint')
+
+    # # Create a new model instance
+    
+
+    # # Restore the weights
+    model.load_weights('data/checkpoints/my_checkpoint')
+    #print(model.evaluate(test_ds, verbose=2))
+
+    labels=[]
+    audios = []
+    for audio, label in train_ds.take(1):
+        labels.append(label.numpy().flatten())
+        audios.append(audio)
+    labels=np.concatenate(labels)
+
+    predictions = model.predict(audios)
+    predictions = tf.argmax(predictions,1).numpy()
+    print(tf.math.confusion_matrix(predictions, labels))
     pass
 
 if __name__ == '__main__':

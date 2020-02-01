@@ -72,10 +72,7 @@ def simple_cnn(width, heigth, classe):
 
 
 if __name__ == '__main__':
-    # model = simple_stacked_fc_nn(64,
-    #                              64,
-    #                              2,
-    #                              512,
-    #                              12)
+    #define model parameters
+
     pass
 
