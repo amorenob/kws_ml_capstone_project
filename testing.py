@@ -5,9 +5,6 @@ from tensorflow.python.ops import gen_audio_ops as audio_ops
 
 AUTOTUNE = tf.data.experimental.AUTOTUNE
 
-AUTOTUNE = tf.data.experimental.AUTOTUNE
-
-
 def audio_to_spectogram(audio, label):
     stfts = tf.signal.stft(
         audio,
@@ -43,7 +40,7 @@ def _parse_batch(record_batch, sample_rate, duration):
     return example['audio'], example['label']
 
 
-def get_raw_dataset_from_tfrecords(tfrecords_dir='data/tfrecords', split='train',
+def get_dataset_from_tfrecords(tfrecords_dir='data/tfrecords', split='train',
                                batch_size=64, sample_rate=16000, duration=1,
                                n_epochs=2):
     if split not in ('train', 'test', 'validate'):
@@ -88,9 +85,6 @@ def get_raw_dataset_from_tfrecords(tfrecords_dir='data/tfrecords', split='train'
 
 
 def preprocess_dataset(ds, preprocess_fc):
-
-
-
 
     ds = ds.map(ds, preprocess_fc)
         

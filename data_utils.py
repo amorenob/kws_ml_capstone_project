@@ -15,12 +15,9 @@ from tensorflow.python.util import compat
 from tensorflow.python.platform import gfile
 
 MAX_NUM_WAVS_PER_CLASS = 2**27 - 1  # ~134M
-
 _BASE_DIR = 'data/'
-
 _DEFAULT_META_CSV = os.path.join(_BASE_DIR, 'meta.csv')
 OUTPUT_DIR = os.path.join(_BASE_DIR, 'tfrecords')
-
 DATA_URL = 'http://download.tensorflow.org/data/speech_commands_v0.01.tar.gz'
 RAW_DATA_DIR = os.path.join(_BASE_DIR, 'raw_data') 
 SILENCE_LABEL = '_silence_'
@@ -29,18 +26,15 @@ UNKNOWN_WORD_LABEL = '_unknown_'
 UNKNOWN_WORD_INDEX = 1
 BACKGROUND_NOISE_DIR_NAME = '_background_noise_'
 RANDOM_SEED = 42
-
 SAMPLE_RATE = 16000
-
 TEST_SIZE = 10
 VAL_SIZE = 10
 NUM_SHARDS_TRAIN = 16 
 NUM_SHARDS_TEST = 2 
 NUM_SHARDS_VAL = 2 
 
-
 TRAIN_WORDS = ['yes', 'no', 'up', 'down', 'left', 'right', 'on', 'off', 'stop', 'go']
-
+AUTOTUNE = tf.data.experimental.AUTOTUNE
 
 
 def which_set(filename, validation_percentage, testing_percentage):
@@ -101,43 +95,6 @@ def prepare_words_list(wanted_words):
     """
     return [SILENCE_LABEL, UNKNOWN_WORD_LABEL] + wanted_words
 
-
-def log_specgrama(audio, sample_rate, window_size=20,
-                  step_size=10, eps=1e-10):
-    nperseg = int(round(window_size * sample_rate / 1e3))
-    noverlap = int(round(step_size * sample_rate / 1e3))
-    freqs, times, spec = signal.spectrogram(audio,
-                                    fs=sample_rate,
-                                    window='hann',
-                                    nperseg=nperseg,
-                                    noverlap=noverlap,
-                                    detrend=False)
-    return freqs, times, np.log(spec.T.astype(np.float32) + eps)
-
-
-def preprocess_mfcc(wave):
-
-    spectrogram = librosa.feature.melspectrogram(wave, sr=SR, n_mels=40, hop_length=160, n_fft=480, fmin=20, fmax=4000)
-    idx = [spectrogram > 0]
-    spectrogram[idx] = np.log(spectrogram[idx])
-
-    dct_filters = librosa.filters.dct(n_filters=40, n_input=40)
-    mfcc = [np.matmul(dct_filters, x) for x in np.split(spectrogram, spectrogram.shape[1], axis=1)]
-    mfcc = np.hstack(mfcc)
-    mfcc = mfcc.astype(np.float32)
-    return mfcc
-
-
-def preprocess_mel(data, n_mels=40, normalization=False):
-    spectrogram = librosa.feature.melspectrogram(data, sr=SR, n_mels=n_mels, hop_length=160, n_fft=480, fmin=20, fmax=4000)
-    spectrogram = librosa.power_to_db(spectrogram)
-    spectrogram = spectrogram.astype(np.float32)
-    if normalization:
-        spectrogram = spectrogram.spectrogram()
-        spectrogram -= spectrogram
-    return spectrogram
-
-
 def download_data(source_url, dest_dir, extract=True):
     """Download files from a given url
 
@@ -176,9 +133,7 @@ def download_data(source_url, dest_dir, extract=True):
         if extract:
             tarfile.open(file_path).extractall(dest_dir)
 
-
-
-def audio_to_spectogram(audio, label):
+def audio_to_spectogram_3D(audio, label):
     stfts = tf.signal.stft(
         audio,
         frame_length=480,
@@ -189,13 +144,26 @@ def audio_to_spectogram(audio, label):
         name=None
     )
     spectrograms = tf.abs(stfts)
-
     spectrograms = tf.expand_dims(spectrograms, -1)
-    #audio = audio * 0
-    spectrograms = tf.image.resize(spectrograms, [124, 124])
-    spectrograms = tf.image.grayscale_to_rgb(spectrograms)
-    #out =  tf.squeeze(expand_dims, 0)
+    spectrograms = tf.image.resize(spectrograms, [124, 124])    # Resize the spectogram to match model input
+    spectrograms = tf.image.grayscale_to_rgb(spectrograms)      # Transform image to 3 cahnels
     return spectrograms, label
+
+def audio_to_spectogram_1D(audio, label):
+    stfts = tf.signal.stft(
+        audio,
+        frame_length=480,
+        frame_step=160,
+        fft_length=None,
+        window_fn=tf.signal.hann_window,
+        pad_end=False,
+        name=None
+    )
+    spectrograms = tf.abs(stfts)
+    spectrograms = tf.expand_dims(spectrograms, -1)
+    spectrograms = tf.image.resize(spectrograms, [124, 124])    # Resize the spectogram to match model input
+    return spectrograms, label
+
 
 
 def _parse_batch(record_batch, sample_rate, duration):
@@ -212,10 +180,9 @@ def _parse_batch(record_batch, sample_rate, duration):
 
     return example['audio'], example['label']
 
-
-def get_raw_dataset_from_tfrecords(tfrecords_dir='data/tfrecords', split='train',
+def get_dataset_from_tfrecords(tfrecords_dir='data/tfrecords', split='train',
                                batch_size=64, sample_rate=16000, duration=1,
-                               n_epochs=2):
+                               n_epochs=3):
     if split not in ('train', 'test', 'validate'):
         raise ValueError("split must be either 'train', 'test' or 'validate'")
 
@@ -246,9 +213,7 @@ def get_raw_dataset_from_tfrecords(tfrecords_dir='data/tfrecords', split='train'
     #print(ds)
     # Parse a batch into a dataset of [audio, label] pairs
     ds = ds.map(lambda x: _parse_batch(x, sample_rate, duration))
-    #ds = ds.map(audio_to_spectogram)
     #print(ds)
-    
     
     # Repeat the training data for n_epochs. Don't repeat test/validate splits.
     if split == 'train':
@@ -256,15 +221,18 @@ def get_raw_dataset_from_tfrecords(tfrecords_dir='data/tfrecords', split='train'
 
     return ds.prefetch(buffer_size=AUTOTUNE)
 
+def _float_feature(list_of_floats):  # float32
+    return tf.train.Feature(float_list=tf.train.FloatList(value=list_of_floats))
 
-def preprocess_dataset(ds, preprocess_fc):
-
-    ds = ds.map(ds, preprocess_fc)
-        
-
+def _int64_feature(value):
+    return tf.train.Feature(int64_list=tf.train.Int64List(value=[value]))
 
 class TFRecordsConverter:
-    """Convert audio to TFRecords."""
+    """Convert audio to TFRecords.
+    Code adapted from How to Build Efficient Audio-Data Pipelines with TensorFlow 2.0
+    David Schwertfeger
+    Source: https://towardsdatascience.com/how-to-build-efficient-audio-data-pipelines-with-tensorflow-2-0-b3133474c3c1 retrieved in January 2020.
+    """
     def __init__(self, data_dir, output_dir, silence_percentage, unknown_percentage,
                  wanted_words, validation_percentage, testing_percentage,  n_shards_val,
                  n_shards_test, n_shards_train):
@@ -415,7 +383,6 @@ class TFRecordsConverter:
                 
                 audio = audio + background_audio
 
-                audio = audio_to_spectogram(audio)
                 # Example is a flexible message type that contains key-value
                 # pairs, where each key maps to a Feature message. Here, each
                 # Example contains two features: A FloatList for the decoded
@@ -498,74 +465,20 @@ class TFRecordsConverter:
             raise Exception('No background wav files were found in ' + search_path)
 
 
-
-
-
-
-def _parse_batch(record_batch, sample_rate, duration):
-    n_samples = sample_rate * duration
-
-    # Create a description of the features
-    feature_description = {
-        'audio': tf.io.FixedLenFeature([n_samples], tf.float32),
-        'label': tf.io.FixedLenFeature([1], tf.int64),
-    }
-
-    # Parse the input `tf.Example` proto using the dictionary above
-    example = tf.io.parse_example(record_batch, feature_description)
-
-    return example['audio'], example['label']
-
-
-def get_dataset_from_tfrecords(tfrecords_dir='tfrecords', split='train',
-                               batch_size=64, sample_rate=22050, duration=4,
-                               n_epochs=10):
-    if split not in ('train', 'test', 'validate'):
-        raise ValueError("split must be either 'train', 'test' or 'validate'")
-
-    # List all *.tfrecord files for the selected split
-    pattern = os.path.join(tfrecords_dir, '{}*.tfrecord'.format(split))
-    files_ds = tf.data.Dataset.list_files(pattern)
-
-
-    # Read TFRecord files in an interleaved order
-    ds = tf.data.TFRecordDataset(files_ds,
-                                 compression_type='ZLIB',
-                                 num_parallel_reads=AUTOTUNE)
-
-    # Shuffle during training
-    if split == 'train':
-        ds = ds.shuffle(batch_size*2)
-        
-    # Prepare batches
-    ds = ds.batch(batch_size)
-
-    # Parse a batch into a dataset of [audio, label] pairs
-    ds = ds.map(lambda x: _parse_batch(x, sample_rate, duration))
-
-    # Repeat the training data for n_epochs. Don't repeat test/validate splits.
-    if split == 'train':
-        ds = ds.repeat(n_epochs)
-
-    return ds.prefetch(buffer_size=AUTOTUNE)
-
-
-
-
-
 if __name__ == '__main__':
-    converter = TFRecordsConverter(RAW_DATA_DIR,
-                       OUTPUT_DIR,
-                       5,
-                       11,
-                       TRAIN_WORDS,
-                       VAL_SIZE,
-                       TEST_SIZE,
-                       NUM_SHARDS_VAL,
-                       NUM_SHARDS_TEST,
-                       NUM_SHARDS_TRAIN
-    )
+    # converter = TFRecordsConverter(RAW_DATA_DIR,
+    #                    OUTPUT_DIR,
+    #                    5,
+    #                    11,
+    #                    TRAIN_WORDS,
+    #                    VAL_SIZE,
+    #                    TEST_SIZE,
+    #                    NUM_SHARDS_VAL,
+    #                    NUM_SHARDS_TEST,
+    #                    NUM_SHARDS_TRAIN
+    # )
 
-    converter.convert()
+    # converter.convert()
 
-print('ya')
+    # print('Convertion finished suceesfully')
+    pass

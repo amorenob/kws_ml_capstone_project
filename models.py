@@ -7,10 +7,6 @@ from tensorflow.keras.layers import Conv2D
 from tensorflow.keras.layers import MaxPooling2D
 
 
-
-# infor ref de como construir modeles en tensorflow
-#  https://www.pyimagesearch.com/2019/10/28/3-ways-to-create-a-keras-model-with-tensorflow-2-0-sequential-functional-and-model-subclassing/
-
 def simple_stacked_fc_nn(width, heigth, depth, units_x_layer, classes, dropout_rate=0.2, activation_fc='relu'):
     """Builds a fully connected nn of n depth with intermidiate drops layers
 
@@ -41,7 +37,7 @@ def simple_stacked_fc_nn(width, heigth, depth, units_x_layer, classes, dropout_r
     activation_fc
 
     Returns:
-    the builded model.
+    The builded model.
     """
     model = Sequential()
     input_shape = (width, heigth, 1)
@@ -52,9 +48,10 @@ def simple_stacked_fc_nn(width, heigth, depth, units_x_layer, classes, dropout_r
     #core layers
     for _ in range(depth):
         model.add(Dense(units_x_layer, activation_fc))
-        model.add(Dropout(dropout_rate))
+        #model.add(Dropout(dropout_rate))
         
     #Output 
+    model.add(Dropout(dropout_rate))
     model.add(Dense(classes, 'softmax')) # the shape of the output is the desired # of classes
     return model
 
@@ -69,6 +66,7 @@ def simple_cnn(width, heigth, classe):
 
     model.add(Flatten())
     model.add(Dense(width*2, activation='relu'))
+    model.add(Dropout(0.2))
     model.add(Dense(12, activation='softmax'))
     return model
 
