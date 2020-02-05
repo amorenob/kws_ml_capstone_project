@@ -5,6 +5,7 @@ from tensorflow.keras.layers import Dense
 from tensorflow.keras.layers import Dropout
 from tensorflow.keras.layers import Conv2D
 from tensorflow.keras.layers import MaxPooling2D
+from tensorflow.keras.layers import LSTM
 
 
 def simple_stacked_fc_nn(width, heigth, depth, units_x_layer, classes, dropout_rate=0.2, activation_fc='relu'):
@@ -55,22 +56,48 @@ def simple_stacked_fc_nn(width, heigth, depth, units_x_layer, classes, dropout_r
     model.add(Dense(classes, 'softmax')) # the shape of the output is the desired # of classes
     return model
 
-def simple_cnn(width, heigth, classe):
+def simple_cnn(width, heigth, classes):
     model = Sequential()
 
-    model.add(Conv2D(width, (3, 3), activation='relu', input_shape=(width, heigth, 3)))
+    model.add(Conv2D(width, (3, 3), activation='relu', input_shape=(width, heigth, 1)))
     model.add(MaxPooling2D((2, 2)))
     model.add(Conv2D(width*2, (3, 3), activation='relu'))
     model.add(MaxPooling2D((2, 2)))
     model.add(Conv2D(width*2, (3, 3), activation='relu'))
-
     model.add(Flatten())
     model.add(Dense(width*2, activation='relu'))
-    model.add(Dropout(0.2))
-    model.add(Dense(12, activation='softmax'))
+    model.add(Dropout(0.35))
+    model.add(Dense(classes, activation='softmax'))
     return model
 
 
+def custom_vgg16():
+    model = Sequential()
+    
+    model.add(Conv2D(64, (3, 3), activation='relu', input_shape=(98, 98, 1)))  
+    model.add(Conv2D(64, (3, 3), activation='relu'))
+    model.add(MaxPooling2D((2, 2)))
+
+    model.add(Conv2D(128, (3, 3), activation='relu'))
+    model.add(Conv2D(128, (3, 3), activation='relu'))
+    model.add(Conv2D(128, (3, 3), activation='relu'))
+    model.add(MaxPooling2D((2, 2)))
+
+    model.add(Conv2D(256, (3, 3), activation='relu'))
+    model.add(Conv2D(256, (3, 3), activation='relu'))
+    model.add(Conv2D(256, (3, 3), activation='relu'))
+    model.add(MaxPooling2D((2, 2)))
+
+    # model.add(Conv2D(512, (3, 3), activation='relu'))
+    # model.add(Conv2D(512, (3, 3), activation='relu'))
+    # model.add(Conv2D(512, (3, 3), activation='relu'))
+    # model.add(MaxPooling2D((2, 2)))
+
+    model.add(Flatten())
+    model.add(Dense(512, activation='relu'))
+    model.add(Dropout(0.4))
+    model.add(Dense(12, activation='softmax'))
+    return model 
 if __name__ == '__main__':
     #define model parameters
 

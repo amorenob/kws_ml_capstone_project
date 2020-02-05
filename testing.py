@@ -38,6 +38,20 @@ def audio_to_melspectogram_3D(audio, label):
     log_mel_spectrograms = tf.image.grayscale_to_rgb(log_mel_spectrograms)      # Transform image to 3 cahnels
     return log_mel_spectrograms, label
 
+def audio_to_spectogram_1D(audio, label):
+    stfts = tf.signal.stft(
+        audio,
+        frame_length=480,
+        frame_step=160,
+        fft_length=None,
+        window_fn=tf.signal.hann_window,
+        pad_end=False,
+        name=None
+    )
+    spectrograms = tf.abs(stfts)
+    #spectrograms = tf.expand_dims(spectrograms, -1)
+    #spectrograms = tf.image.resize(spectrograms, [124, 124])    # Resize the spectogram to match model input
+    return spectrograms, label
 
 def _parse_batch(record_batch, sample_rate, duration):
     n_samples = sample_rate * duration
@@ -53,7 +67,6 @@ def _parse_batch(record_batch, sample_rate, duration):
 
     return example['audio'], example['label']
   
-
 def get_dataset_from_tfrecords(tfrecords_dir='data/tfrecords', split='train',
                                batch_size=64, sample_rate=16000, duration=1,
                                n_epochs=2):
@@ -96,7 +109,6 @@ def get_dataset_from_tfrecords(tfrecords_dir='data/tfrecords', split='train',
         ds = ds.repeat(n_epochs)
 
     return ds.prefetch(buffer_size=AUTOTUNE)
-
 
 def preprocess_dataset(ds, preprocess_fc):
 
@@ -152,4 +164,47 @@ def main():
     pass
 
 if __name__ == '__main__':
-    main()
+    #main()
+    ds = get_dataset_from_tfrecords(batch_size=64, split='train')
+    print(ds.take(1))
+    ds = ds.map(audio_to_spectogram_1D) 
+    print(ds.take(1))
+    data_path = 'data/raw_data'
+    # Choose one audio clip to work with
+    bed_audio = os.path.join(data_path, 'bed', '00176480_nohash_0.wav')
+    #readind the audio file...
+    raw_audio = tf.io.read_file(bed_audio)
+    # Let's check what we've got
+    print(f'raw_audio {type(raw_audio)}')   
+    print(f'raw_audio {raw_audio.numpy()[:20]}') # Print the head(20) of the raw audio
+    # All audio files were recorded at 16000 samples / seconds
+    sample_rate = 16000	
+    audio, sample_rate = tf.audio.decode_wav(raw_audio,
+                                            desired_channels=1,  # mono
+                                            desired_samples=sample_rate )
+    audio= tf.squeeze(audio)
+
+    #audio = tf.expand_dims(audio, 0)
+    print(f'audio {type(audio)}')   
+    print(f'audio {audio.shape}') 
+    print(f'audio {audio.numpy()[:10]}') # Print the head(10) of the decoded audio
+
+
+    def audio_to_spectogram(audio):
+        stfts = tf.signal.stft(
+            audio,
+            frame_length=480,
+            frame_step=160,
+            fft_length=None,
+            window_fn=tf.signal.hann_window,
+            pad_end=False,
+            name=None
+        )
+        spectrogram = tf.abs(stfts)
+        #spectrogram = tf.expand_dims(spectrogram, -1)             
+        return spectrogram
+    
+    spectrogram = audio_to_spectogram(audio)
+    print(f'audio {type(spectrogram)}')   
+    print(f'audio {spectrogram.shape}') 
+    print(f'audio {spectrogram.numpy()}') # Print the head(10) of the decoded audio

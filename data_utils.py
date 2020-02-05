@@ -7,8 +7,6 @@ import math
 import hashlib
 import tarfile
 import sys
-from scipy import signal
-from scipy.io import wavfile
 import numpy as np
 import tensorflow as tf
 from tensorflow.python.util import compat
@@ -16,7 +14,7 @@ from tensorflow.python.platform import gfile
 
 MAX_NUM_WAVS_PER_CLASS = 2**27 - 1  # ~134M
 _BASE_DIR = 'data/'
-_DEFAULT_META_CSV = os.path.join(_BASE_DIR, 'meta.csv')
+
 OUTPUT_DIR = os.path.join(_BASE_DIR, 'tfrecords')
 DATA_URL = 'http://download.tensorflow.org/data/speech_commands_v0.01.tar.gz'
 RAW_DATA_DIR = os.path.join(_BASE_DIR, 'raw_data') 
@@ -133,22 +131,6 @@ def download_data(source_url, dest_dir, extract=True):
         if extract:
             tarfile.open(file_path).extractall(dest_dir)
 
-def audio_to_spectogram_3D(audio, label):
-    stfts = tf.signal.stft(
-        audio,
-        frame_length=480,
-        frame_step=160,
-        fft_length=None,
-        window_fn=tf.signal.hann_window,
-        pad_end=False,
-        name=None
-    )
-    spectrograms = tf.abs(stfts)
-    spectrograms = tf.expand_dims(spectrograms, -1)
-    spectrograms = tf.image.resize(spectrograms, [124, 124])    # Resize the spectogram to match model input
-    spectrograms = tf.image.grayscale_to_rgb(spectrograms)      # Transform image to 3 cahnels
-    return spectrograms, label
-
 def audio_to_spectogram_1D(audio, label):
     stfts = tf.signal.stft(
         audio,
@@ -163,6 +145,37 @@ def audio_to_spectogram_1D(audio, label):
     spectrograms = tf.expand_dims(spectrograms, -1)
     spectrograms = tf.image.resize(spectrograms, [124, 124])    # Resize the spectogram to match model input
     return spectrograms, label
+
+def audio_to_melspectogram(audio, label):
+    sample_rate = 16000
+    stfts = tf.signal.stft(
+        audio,
+        frame_length=480,
+        frame_step=160,
+        fft_length=None,
+        window_fn=tf.signal.hann_window,
+        pad_end=False,
+        name=None
+    )
+    spectrograms = tf.abs(stfts)
+    # Warp the linear scale spectrograms into the mel-scale.
+    num_spectrogram_bins = stfts.shape[-1]
+    print(num_spectrogram_bins)
+    lower_edge_hertz, upper_edge_hertz, num_mel_bins = 80.0, 7600.0, 80
+    linear_to_mel_weight_matrix = tf.signal.linear_to_mel_weight_matrix(
+    num_mel_bins, num_spectrogram_bins, sample_rate, lower_edge_hertz,
+    upper_edge_hertz)
+    mel_spectrograms = tf.tensordot(
+    spectrograms, linear_to_mel_weight_matrix, 1)
+    mel_spectrograms.set_shape(spectrograms.shape[:-1].concatenate(
+    linear_to_mel_weight_matrix.shape[-1:]))
+    # Compute a stabilized log to get log-magnitude mel-scale spectrograms.
+
+    log_mel_spectrograms = tf.math.log(mel_spectrograms + 1e-6)
+
+    log_mel_spectrograms = tf.expand_dims(log_mel_spectrograms, -1)
+    log_mel_spectrograms = tf.image.resize(log_mel_spectrograms, [98, 98])    # Resize the spectogram to match model input
+    return log_mel_spectrograms, label
 
 def _parse_batch(record_batch, sample_rate, duration):
     n_samples = sample_rate * duration
@@ -234,12 +247,13 @@ class TFRecordsConverter:
     def __init__(self, data_dir, output_dir, silence_percentage, unknown_percentage,
                  wanted_words, validation_percentage, testing_percentage,  n_shards_val,
                  n_shards_test, n_shards_train):
+
         self.sample_rate=16000
         self.n_shards_train = n_shards_train
         self.n_shards_test = n_shards_test
         self.n_shards_val = n_shards_val
-
         self.output_dir = output_dir
+        
         #create the directory to save the TFRecord files
         if not os.path.exists(self.output_dir):
             os.makedirs(self.output_dir)
@@ -260,8 +274,7 @@ class TFRecordsConverter:
         The training loop needs a list of all the available data, organized by
         which partition it should belong to, and with ground truth labels attached.
         This function analyzes the folders below the `data_dir`, figures out the
-        right
-        labels for each file based on the name of the subdirectory it belongs to,
+        right labels for each file based on the name of the subdirectory it belongs to,
         and uses a stable hash to assign it to a data set partition.
 
         Args:
@@ -348,8 +361,6 @@ class TFRecordsConverter:
         """Write TFRecord file."""
         with tf.io.TFRecordWriter(shard_path, options='ZLIB') as out:
             for index in indices:
-                #file_path = self.df.file_path.iloc[index]
-                #label = self.df.label.iloc[index]
                 file_path = self.data_index[split][index]['file']
                 label = self.word_to_index[self.data_index[split][index]['label']]
 
@@ -363,20 +374,18 @@ class TFRecordsConverter:
                 # Mute audio signal if label is silence
                 if label ==  self.word_to_index[SILENCE_LABEL]:
                     audio = audio * 0
-                    
+                
+                # Time shift
                 time_shift_ms = 100
                 time_shift = int((time_shift_ms * self.sample_rate) / 1000)
                 time_shift_amount = np.random.randint(-time_shift, time_shift)
-
                 audio = tf.roll(audio, time_shift_amount, axis=0)
 
+                # Add background noise
                 background_audio = random.choice(self.background_data)
-                background_offset = np.random.randint(
-                            0, len(background_audio) - 16000)
-                background_clipped = background_audio[background_offset:(
-                    background_offset + 16000)]
-                background_reshaped = tf.reshape(background_clipped, [16000, 1])
-
+                background_offset = np.random.randint(0, len(background_audio) - self.sample_rate)
+                background_clipped = background_audio[background_offset:(background_offset + self.sample_rate)]
+                background_reshaped = tf.reshape(background_clipped, [self.sample_rate, 1])
                 background_frequency = 0.5
                 background_volume_range = 0.2
                 if np.random.uniform(0, 1) < background_frequency:
@@ -455,15 +464,12 @@ class TFRecordsConverter:
         if not os.path.exists(background_dir):
             return self.background_data
         
-        search_path = os.path.join(self.data_dir, BACKGROUND_NOISE_DIR_NAME,
-                            '*.wav')
+        search_path = os.path.join(self.data_dir, BACKGROUND_NOISE_DIR_NAME, '*.wav')
 
         for wav_path in gfile.Glob(search_path):
             raw_audio = tf.io.read_file(wav_path)
-            audio, sample_rate = tf.audio.decode_wav(
-                raw_audio,
-                desired_channels=1  # mono
-                )
+            audio, sample_rate = tf.audio.decode_wav(raw_audio,
+                                                     desired_channels=1)# mono
 
             self.background_data.append(audio)
 
