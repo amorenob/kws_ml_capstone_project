@@ -5,7 +5,7 @@ from tensorflow.keras.layers import Dense
 from tensorflow.keras.layers import Dropout
 from tensorflow.keras.layers import Conv2D
 from tensorflow.keras.layers import MaxPooling2D
-from tensorflow.keras.layers import LSTM
+
 
 
 def simple_stacked_fc_nn(width, heigth, depth, units_x_layer, classes, dropout_rate=0.2, activation_fc='relu'):
@@ -49,12 +49,12 @@ def simple_stacked_fc_nn(width, heigth, depth, units_x_layer, classes, dropout_r
     #core layers
     for _ in range(depth):
         model.add(Dense(units_x_layer, activation_fc))
-        #model.add(Dropout(dropout_rate))
         
     #Output 
     model.add(Dropout(dropout_rate))
     model.add(Dense(classes, 'softmax')) # the shape of the output is the desired # of classes
     return model
+
 
 def simple_cnn(width, heigth, classes):
     model = Sequential()
@@ -71,7 +71,7 @@ def simple_cnn(width, heigth, classes):
     return model
 
 
-def custom_vgg16():
+def custom_vgg():
     model = Sequential()
     
     model.add(Conv2D(64, (3, 3), activation='relu', input_shape=(98, 98, 1)))  
@@ -88,16 +88,13 @@ def custom_vgg16():
     model.add(Conv2D(256, (3, 3), activation='relu'))
     model.add(MaxPooling2D((2, 2)))
 
-    # model.add(Conv2D(512, (3, 3), activation='relu'))
-    # model.add(Conv2D(512, (3, 3), activation='relu'))
-    # model.add(Conv2D(512, (3, 3), activation='relu'))
-    # model.add(MaxPooling2D((2, 2)))
-
     model.add(Flatten())
     model.add(Dense(512, activation='relu'))
     model.add(Dropout(0.4))
     model.add(Dense(12, activation='softmax'))
     return model 
+
+    
 if __name__ == '__main__':
     #define model parameters
 

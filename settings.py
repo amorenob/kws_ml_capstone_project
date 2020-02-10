@@ -15,9 +15,15 @@ RAW_DATA_DIR = os.path.join(_BASE_DIR, 'raw_data')
 #Silence category settings
 SILENCE_LABEL = '_silence_'
 SILENCE_INDEX = 0
+#Percentage of the silent category
+SILENT_SIZE = 5  
+
 #Unknown category settings
 UNKNOWN_WORD_LABEL = '_unknown_'
 UNKNOWN_WORD_INDEX = 1
+#Percentage of the Unknown category
+UNKNOW_SIZE = 11 
+
 #where to find the background noise audios
 BACKGROUND_NOISE_DIR_NAME = '_background_noise_'
 
