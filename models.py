@@ -71,7 +71,7 @@ def simple_cnn(width, heigth, classes):
     return model
 
 
-def custom_vgg():
+def custom_vgg(dropout_rate):
     model = Sequential()
     
     model.add(Conv2D(64, (3, 3), activation='relu', input_shape=(98, 98, 1)))  
@@ -90,11 +90,11 @@ def custom_vgg():
 
     model.add(Flatten())
     model.add(Dense(512, activation='relu'))
-    model.add(Dropout(0.4))
+    model.add(Dropout(dropout_rate))
     model.add(Dense(12, activation='softmax'))
     return model 
 
-    
+
 if __name__ == '__main__':
     #define model parameters
 
