@@ -143,7 +143,7 @@ def audio_to_spectogram(audio, label):
     )
     spectrograms = tf.abs(stfts)
     spectrograms = tf.expand_dims(spectrograms, -1)
-    spectrograms = tf.image.resize(spectrograms, [124, 124])    # Resize the spectogram to match model input
+    spectrograms = tf.image.resize(spectrograms, [98, 98])    # Resize the spectogram to match model input
     return spectrograms, label
 
 def audio_to_melspectogram(audio, label):
@@ -174,6 +174,35 @@ def audio_to_melspectogram(audio, label):
     log_mel_spectrograms = tf.expand_dims(log_mel_spectrograms, -1)
     log_mel_spectrograms = tf.image.resize(log_mel_spectrograms, [98, 98])    # Resize the spectogram to match model input
     return log_mel_spectrograms, label
+
+def audio_to_mfcc(audio, label):
+    sample_rate = 16000
+    stfts = tf.signal.stft(
+        audio,
+        frame_length=480,
+        frame_step=160,
+        fft_length=None,
+        window_fn=tf.signal.hann_window,
+        pad_end=False,
+        name=None
+    )
+    spectrograms = tf.abs(stfts)
+    # Warp the linear scale spectrograms into the mel-scale.
+    num_spectrogram_bins = stfts.shape[-1]
+    #print(num_spectrogram_bins)
+    lower_edge_hertz, upper_edge_hertz, num_mel_bins = 80.0, 7600.0, 80
+    linear_to_mel_weight_matrix = tf.signal.linear_to_mel_weight_matrix(
+    num_mel_bins, num_spectrogram_bins, sample_rate, lower_edge_hertz, upper_edge_hertz)
+    mel_spectrograms = tf.tensordot(spectrograms, linear_to_mel_weight_matrix, 1)
+    mel_spectrograms.set_shape(spectrograms.shape[:-1].concatenate(
+    linear_to_mel_weight_matrix.shape[-1:]))
+    # Compute a stabilized log to get log-magnitude mel-scale spectrograms.
+    log_mel_spectrograms = tf.math.log(mel_spectrograms + 1e-6)
+    log_mel_spectrograms = tf.expand_dims(log_mel_spectrograms, -1)
+    mfccs = tf.signal.mfccs_from_log_mel_spectrograms(log_mel_spectrograms)
+    mfccs = tf.image.resize(mfccs, [98, 98])    # Resize the spectogram to match model input
+    return mfccs, label
+
 
 def _parse_batch(record_batch, sample_rate, duration):
     n_samples = sample_rate * duration
