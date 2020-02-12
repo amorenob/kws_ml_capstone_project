@@ -16,20 +16,24 @@ The approach to find a solution for the given problem statement is to build, tra
 # Requirements
     Python >= 3.6
     tensorflow 2.x
+    numpy >= 1.17
+    pandas >= 0.25
+    matplotlib >= 3.1
+    seaborn >= 0.10
 
 
 # References
 [1]. Warden P. (2017, August 24). Launching the Speech Commands Dataset. Retrieved from: https://ai.googleblog.com/2017/08/launching-speech-commands-dataset.html
+
 [2] TensorFlow tutorials, Simple Audio Recognition. 2017. https://github.com/tensorflow/docs/blob/master/site/en/r1/tutorials/sequences/audio_recognition.md#simple-audio-recognition
+
 [3] TensorFlow Speech Recognition Challenge. 2017. https://www.kaggle.com/c/tensorflow-speech-recognition-challenge/overview
+
 [4] TensorFlow Speech Recognition Challenge, Evaluation. 2017. https://www.kaggle.com/c/tensorflow-speech-recognition-challenge/overview/evaluation
+
 [5] Sainath T, Parada C. Convolutional Neural Networks for Small-footprint Keyword Spotting. INTERSPEECH 2015.
+
 [6] Nair Pratheeksha, The dummy’s guide to MFCC, 2018. https://medium.com/prathena/the-dummys-guide-to-mfcc-aceab2450fd
+
 [7] Simonyan K, Zisserman A, Very Deep Convolutional Networks for Large-Scale Image Recognition, ICLR 2015. 
 
-
-# Resources
-    How to get a spectogram in tensor flow
-    https://mauri870.github.io/blog/posts/audio-spectrograms-in-tensorflow/
-    Speech Recognition — Feature Extraction MFCC & PLP 
-    https://medium.com/@jonathan_hui/speech-recognition-feature-extraction-mfcc-plp-5455f5a69dd9
